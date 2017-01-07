@@ -1,4 +1,7 @@
 
+#ifndef WOMESSAGE_HPP
+#define WOMESSAGE_HPP
+
 #include <cstddef>
 
 class WoMessage
@@ -20,3 +23,5 @@ private:
     const char* data_;
     size_t size_;
 };
+
+#endif

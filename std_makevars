@@ -1,0 +1,19 @@
+
+
+make: all
+
+CC = gcc
+ERLC = erlc
+CC_FLAGS = -Wall -Wno-c++11-extensions
+BRIDGE_FLAGS = $(CC_FLAGS) -undefined dynamic_lookup -dynamiclib -fPIC -shared
+ERL_INC = /usr/local/Cellar/erlang/R14B02/lib/erlang/usr/include/
+
+BIN=bin
+
+$(BIN):
+	mkdir $(BIN)
+
+all: $(TARGETS)
+
+clean:
+	rm $(BIN)/*

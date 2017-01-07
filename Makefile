@@ -1,34 +1,32 @@
 
-make: all
+include std_makevars
 
-CC = gcc
-BRIDGE_FLAGS = -undefined dynamic_lookup -dynamiclib -fPIC -shared
-ERL_INC = /usr/local/Cellar/erlang/R14B02/lib/erlang/usr/include/
-
-BIN=bin
 TARGETS = \
           $(NIF) \
           $(ERL_BRIDGE) \
+		  $(ERL_BRIDGE_STATIC) \
 
 NIF = wobridge.so
 ERL_BRIDGE = $(ERL_SRCS:.erl=.beam)
+ERL_BRIDGE_STATIC = wobridge_static
 
-NIF_SRCS = \
-		   WoErlangBridge.cpp \
-		   WoMessage.cpp \
+SRCS = \
+	   src/WoErlangBridge.cpp \
+       src/WoMessage.cpp \
+	   src/WoShmQueue.cpp \
+	   src/WoShmAllocator.cpp \
 
 ERL_SRCS = \
-           wo_bridge.erl \
-
-$(BIN):
-	@mkdir $(BIN)
+       erl/wo_bridge.erl \
 
 $(ERL_BRIDGE): $(ERL_SRCS) | $(BIN)
-	@erlc -o $(BIN) $(ERL_SRCS)
+	$(ERLC) -o $(BIN) $(ERL_SRCS)
 
-$(NIF): $(NIF_SRCS) | $(BIN)
-	@$(CC) $(BRIDGE_FLAGS) -o $(BIN)/$(NIF) -I $(ERL_INC) $(NIF_SRCS)
+$(NIF): $(SRCS) | $(BIN)
+	$(CC) $(BRIDGE_FLAGS) -o $(BIN)/$(NIF) -I $(ERL_INC) $(SRCS) 
 
-all: $(TARGETS)
-clean:
-	@rm $(BIN)/*
+$(ERL_BRIDGE_STATIC): $(SRCS) | $(BIN)
+	$(CC) $(CC_FLAGS) -o $(BIN)/$(ERL_BRIDGE_STATIC) -I $(ERL_INC) $(SRCS)
+
+
+include std_makevars

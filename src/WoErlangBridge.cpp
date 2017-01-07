@@ -11,7 +11,8 @@ using std::endl;
 WoErlangBridge* WoErlangBridge::instance_ = 0;
 
 ErlNifFunc WoErlangBridge::nifFuncs[] = {
-    {"initialize", 0, WoErlangBridge::initialize}
+    {"initialize", 0, WoErlangBridge::initialize},
+    {"process",    1, WoErlangBridge::process}
 };
 
 WoErlangBridge::WoErlangBridge() :
@@ -23,10 +24,9 @@ WoErlangBridge::WoErlangBridge() :
 
 WoErlangBridge::~WoErlangBridge()
 {
-    list<ErlNifTid>::iterator threadItr = instance_->threads_.begin();
-    for (; threadItr != instance_->threads_.end(); ++threadItr)
+    for (const ErlNifTid thread : threads_)
     {
-        enif_thread_join(*threadItr, NULL /* exit value */);
+        enif_thread_join(thread, NULL /* exit value */);
     }
     
     enif_free_env(messageEnv_);
@@ -35,7 +35,7 @@ WoErlangBridge::~WoErlangBridge()
     messageEnv_ = 0;
 }
 
-int WoErlangBridge::load()
+int WoErlangBridge::load(ErlNifEnv*, void **, ERL_NIF_TERM)
 {
     if (WoErlangBridge::instance_)
     {
@@ -48,7 +48,7 @@ int WoErlangBridge::load()
     return true;
 }
 
-void WoErlangBridge::unload()
+void WoErlangBridge::unload(ErlNifEnv*, void*)
 {
     delete WoErlangBridge::instance_;
 }
@@ -68,39 +68,55 @@ ERL_NIF_TERM WoErlangBridge::initialize(ErlNifEnv* env, int argc, const ERL_NIF_
     if (!enif_is_pid(env, argv[0]) ||
         !enif_get_local_pid(env, argv[0], &bridgePid))
     {
-        cout << "Argument passed to initialize() was not a PID or conversion form ERL_TERM failed." << endl;
+        cout << "Argument passed to initialize() was not a PID or conversion from ERL_TERM failed." << endl;
         exit(1);
     }
 
     instance_->setBridge(env, bridgePid);
-    instance_->createThread(notifyClients);
-
+    instance_->createThread(notificationThread);
 
     static const ERL_NIF_TERM atomOk = enif_make_atom(instance_->messageEnv_, "ok");
     return atomOk;
 }
 
-ERL_NIF_TERM WoErlangBridge::formatMessage(const WoMessage* message)
+ERL_NIF_TERM WoErlangBridge::process(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    assert(WoErlangBridge::instance_);
+
+    static const ERL_NIF_TERM atomOk = enif_make_atom(instance_->messageEnv_, "ok");
+    return atomOk;
+}
+
+ERL_NIF_TERM WoErlangBridge::formatMessage(const WoMessage& message)
 {
     static const ERL_NIF_TERM woMessageAtom = enif_make_atom(messageEnv_, "wo_message");
     ERL_NIF_TERM binaryTerm;
 
-    unsigned char* binaryPtr = enif_make_new_binary(messageEnv_, message->size(), &binaryTerm);
-    memcpy(binaryPtr, message->data(), message->size());
+    unsigned char* binaryPtr = enif_make_new_binary(messageEnv_, message.size(), &binaryTerm);
+    memcpy(binaryPtr, message.data(), message.size());
 
     return enif_make_tuple2(messageEnv_, woMessageAtom, binaryTerm);
 }
 
-void*  WoErlangBridge::notifyClients(void*)
+void*  WoErlangBridge::notificationThread(void*)
+{
+    assert(instance_);
+    instance_->notifyClients();
+
+    return NULL;
+}
+
+void WoErlangBridge::notifyClients()
 {
     bool keepRunning = true;
 
     do
     {
-        const WoMessage* message = instance_->pop();
-        ERL_NIF_TERM term = instance_->formatMessage(message);
+        const WoMessage message = queue_.pop();
+
+        ERL_NIF_TERM term = formatMessage(message);
             
-        if(!enif_send(env_, bridgePid_, messageEnv_, term))
+        if(!enif_send(env_, &bridgePid_, messageEnv_, term))
         {
             cout << "Could not send message to bridge - process may no longer be alive." << endl;
             keepRunning = false;
@@ -119,10 +135,10 @@ void WoErlangBridge::setBridge(ErlNifEnv* env, ErlNifPid pid)
 
 void WoErlangBridge::createThread(VoidFunc callback)
 {
-    const char* const threadName = "bridgeThread";
+    static char threadName[] = "bridgeThread";
     ErlNifTid tid;
 
-    int result = enif_thread_create(const_cast<char*>(threadName), &tid, callback,
+    int result = enif_thread_create(threadName, &tid, callback,
             NULL /* callback args */, NULL /* options */);
 
     if (result != 0)
